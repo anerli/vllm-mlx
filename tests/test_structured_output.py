@@ -232,6 +232,18 @@ class TestParseJsonOutput:
         assert parsed == {"colors": ["red", "blue"]}
         assert is_valid is True
 
+    def test_response_format_json_schema_model_creation(self):
+        """Test ResponseFormat model construction for json_schema."""
+        response_format = ResponseFormat(
+            type="json_schema",
+            json_schema=ResponseFormatJsonSchema(
+                name="test",
+                schema_={"type": "object"},
+            ),
+        )
+        assert response_format.type == "json_schema"
+        assert response_format.json_schema.name == "test"
+
 
 class TestBuildJsonSystemPrompt:
     """Tests for build_json_system_prompt function."""

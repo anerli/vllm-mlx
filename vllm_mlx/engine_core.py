@@ -279,6 +279,15 @@ class EngineCore:
             prefix_boundary=prefix_boundary,
         )
 
+        # Build logits processors from guided decoding params
+        if sampling_params and sampling_params.guided_decoding:
+            from .guided_decoding import build_logits_processor
+
+            processor = build_logits_processor(
+                self.tokenizer, sampling_params.guided_decoding
+            )
+            request.logits_processors = [processor]
+
         # Setup output collector with stream_interval from config
         self._output_collectors[request_id] = RequestOutputCollector(aggregate=True)
         self._stream_states[request_id] = RequestStreamState(

@@ -97,6 +97,7 @@ audio = [
     "unidic-lite>=1.0.0",    # Japanese dictionary for fugashi
     "jieba>=0.42.0",         # Chinese word segmentation
 ]
+structured = ["outlines==1.0.4"]
 
 [project.urls]
 Homepage = "https://github.com/vllm-mlx/vllm-mlx"

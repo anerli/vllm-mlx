@@ -169,6 +169,11 @@ class ChatCompletionRequest(BaseModel):
     tool_choice: str | dict | None = None  # "auto", "none", or specific tool
     # Structured output
     response_format: ResponseFormat | dict | None = None
+    # vLLM-compatible guided decoding fields (mutually exclusive)
+    guided_json: dict | str | None = None
+    guided_regex: str | None = None
+    guided_grammar: str | None = None
+    guided_choice: list[str] | None = None
     # MLLM-specific parameters
     video_fps: float | None = None
     video_max_frames: int | None = None

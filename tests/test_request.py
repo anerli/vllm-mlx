@@ -8,6 +8,7 @@ from vllm_mlx/request.py. No MLX dependency.
 
 import time
 
+from vllm_mlx.guided_decoding import GuidedDecodingParams
 from vllm_mlx.request import Request, RequestOutput, RequestStatus, SamplingParams
 
 
@@ -102,6 +103,19 @@ class TestSamplingParams:
         params = SamplingParams(stop=None, stop_token_ids=None)
         assert params.stop == []
         assert params.stop_token_ids == []
+
+    def test_guided_decoding(self):
+        params = SamplingParams(
+            guided_decoding=GuidedDecodingParams(
+                kind="json_schema", json_schema={"type": "object"}
+            )
+        )
+        assert params.guided_decoding is not None
+        assert params.guided_decoding.kind == "json_schema"
+
+    def test_guided_decoding_defaults_to_none(self):
+        params = SamplingParams()
+        assert params.guided_decoding is None
 
 
 class TestRequest:
@@ -365,6 +379,23 @@ class TestRequest:
         assert req.cached_tokens == 50
         assert req.remaining_tokens == [51, 52, 53]
 
+    def test_logits_processors_defaults_to_none(self):
+        req = Request(
+            request_id="test-1",
+            prompt="Hello",
+            sampling_params=SamplingParams(),
+        )
+        assert req.logits_processors is None
+
+    def test_logits_processors_can_be_set(self):
+        req = Request(
+            request_id="test-1",
+            prompt="Hello",
+            sampling_params=SamplingParams(),
+        )
+        req.logits_processors = [lambda _, logits: logits]
+        assert len(req.logits_processors) == 1
+
     def test_default_optional_fields(self):
         req = Request(
             request_id="test-1",
@@ -374,6 +405,7 @@ class TestRequest:
         assert req.prompt_token_ids is None
         assert req.prompt_cache is None
         assert req.block_table is None
+        assert req.logits_processors is None
         assert req.images is None
         assert req.videos is None
         assert req.pixel_values is None

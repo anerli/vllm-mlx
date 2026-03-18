@@ -1769,6 +1769,7 @@ class Scheduler:
                     [tokens_to_process],
                     max_tokens=[request.sampling_params.max_tokens],
                     caches=[cache_to_use] if cache_to_use else None,
+                    logits_processors=[request.logits_processors or []],
                 )
             except Exception as e:
                 if cache_to_use is not None:
@@ -1785,6 +1786,7 @@ class Scheduler:
                         [tokens_to_process],
                         max_tokens=[request.sampling_params.max_tokens],
                         caches=None,
+                        logits_processors=[request.logits_processors or []],
                     )
                 else:
                     raise

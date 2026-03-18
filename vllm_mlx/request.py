@@ -9,9 +9,10 @@ request management system, simplified for MLX backend.
 import enum
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
 if TYPE_CHECKING:
+    from .guided_decoding import GuidedDecodingParams
     from .paged_cache import BlockTable
 
 
@@ -60,6 +61,9 @@ class SamplingParams:
     repetition_penalty: float = 1.0
     stop: Optional[List[str]] = None
     stop_token_ids: Optional[List[int]] = None
+
+    # Guided decoding (GuidedDecodingParams from vllm_mlx.guided_decoding)
+    guided_decoding: Optional["GuidedDecodingParams"] = None
 
     def __post_init__(self):
         if self.stop is None:
@@ -116,6 +120,9 @@ class Request:
     # Paged cache fields (for BlockAwarePrefixCache)
     block_table: Optional["BlockTable"] = None  # Block table for paged cache
     shared_prefix_blocks: int = 0  # Number of shared prefix blocks
+
+    # Logits processors (runtime only, built from guided_decoding params)
+    logits_processors: Optional[List[Any]] = None
 
     # Multimodal content (images, video) - raw inputs
     images: Optional[List[Any]] = None

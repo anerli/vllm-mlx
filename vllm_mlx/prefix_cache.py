@@ -532,6 +532,21 @@ class BlockAwarePrefixCache:
             and "state" in cache_data[0]
         )
 
+        kv_layer_mask = None
+        if is_tensor_data:
+            kv_layer_mask = []
+            for layer_data in cache_data:
+                if isinstance(layer_data, dict) and "state" in layer_data:
+                    state = layer_data["state"]
+                    is_kv = isinstance(state, tuple) and len(state) == 2
+                    if is_kv and hasattr(state[0], "ndim"):
+                        is_kv = state[0].ndim == 4
+                    kv_layer_mask.append(is_kv)
+                elif hasattr(layer_data, "keys") and hasattr(layer_data, "values"):
+                    kv_layer_mask.append(True)
+                else:
+                    kv_layer_mask.append(False)
+
         # Get or create block table
         block_table = self.paged_cache.get_block_table(request_id)
         if not block_table:
@@ -586,7 +601,10 @@ class BlockAwarePrefixCache:
             # Extract and store actual tensor slices for this block
             if is_tensor_data and HAS_MLX:
                 block_kv_data = self._extract_block_tensor_slice(
-                    cache_data, global_start, global_end
+                    cache_data,
+                    global_start,
+                    global_end,
+                    kv_layer_mask=kv_layer_mask,
                 )
                 if block_kv_data:
                     block.cache_data = block_kv_data
@@ -629,7 +647,8 @@ class BlockAwarePrefixCache:
         cache_data: List[Dict[str, Any]],
         start_idx: int,
         end_idx: int,
-    ) -> Optional[List[Tuple[Any, Any]]]:
+        kv_layer_mask: Optional[List[bool]] = None,
+    ) -> Optional[List[Any]]:
         """
         Extract tensor slices for a single block from cache data.
 
@@ -646,7 +665,16 @@ class BlockAwarePrefixCache:
 
         try:
             block_slices = []
-            for layer_state in cache_data:
+            for layer_idx, layer_state in enumerate(cache_data):
+                # Skip non-KV layers (e.g., ArraysCache for hybrid models)
+                if (
+                    kv_layer_mask is not None
+                    and layer_idx < len(kv_layer_mask)
+                    and not kv_layer_mask[layer_idx]
+                ):
+                    block_slices.append(None)
+                    continue
+
                 if "state" not in layer_state:
                     continue
 
@@ -809,11 +837,26 @@ class BlockAwarePrefixCache:
             reconstructed_caches = []
 
             for layer_idx in range(num_layers):
+                layer_has_data = any(
+                    block_data[layer_idx] is not None
+                    for block_data in all_block_data
+                    if layer_idx < len(block_data)
+                )
+
+                if not layer_has_data:
+                    # Non-KV layer (e.g., ArraysCache) - create empty placeholder.
+                    # These layers will be recomputed during prefill.
+                    reconstructed_caches.append(None)
+                    continue
+
                 layer_keys = []
                 layer_values = []
 
                 for block_data in all_block_data:
-                    if layer_idx < len(block_data):
+                    if (
+                        layer_idx < len(block_data)
+                        and block_data[layer_idx] is not None
+                    ):
                         keys_slice, values_slice = block_data[layer_idx]
                         layer_keys.append(keys_slice)
                         layer_values.append(values_slice)

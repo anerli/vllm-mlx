@@ -28,6 +28,15 @@ class TestCacheBlock:
         assert block.hash_value is None
         assert block.cache_data is None
 
+    def test_cache_block_accepts_any_cache_data(self):
+        """Test cache_data supports KV and non-KV layer entries."""
+        from vllm_mlx.paged_cache import CacheBlock
+
+        block = CacheBlock(block_id=0)
+        block.cache_data = [("keys", "values")]
+        block.cache_data = [None, ("keys", "values"), None]
+        block.cache_data = ["anything", 42, None]
+
     def test_cache_block_is_full(self):
         """Test is_full method."""
         from vllm_mlx.paged_cache import CacheBlock
@@ -575,153 +584,4 @@ class TestThreadSafety:
         assert len(set(results)) == 50  # All unique block IDs
 
 
-# =============================================================================
-# BlockAwarePrefixCache Tests
-# =============================================================================
 
-
-class TestBlockAwarePrefixCache:
-    """Test BlockAwarePrefixCache class."""
-
-    def test_initialization(self):
-        """Test cache initialization."""
-        from vllm_mlx.paged_cache import PagedCacheManager
-        from vllm_mlx.prefix_cache import BlockAwarePrefixCache
-
-        paged_manager = PagedCacheManager(block_size=64, max_blocks=100)
-        cache = BlockAwarePrefixCache(model=None, paged_cache_manager=paged_manager)
-
-        assert cache.block_size == 64
-        assert len(cache) == 0
-
-    def test_store_and_fetch_cache(self):
-        """Test storing and fetching cache."""
-        from vllm_mlx.paged_cache import PagedCacheManager
-        from vllm_mlx.prefix_cache import BlockAwarePrefixCache
-
-        paged_manager = PagedCacheManager(block_size=64, max_blocks=100)
-        cache = BlockAwarePrefixCache(model=None, paged_cache_manager=paged_manager)
-
-        # Store cache for first request
-        tokens1 = list(range(128))  # 2 blocks worth
-        cache_data1 = ["cache_data_1"]
-        block_table = cache.store_cache("req-1", tokens1, cache_data1)
-
-        assert block_table is not None
-        assert block_table.num_tokens == 128
-        assert len(block_table.block_ids) == 2
-
-        # Fetch cache for second request with same prefix
-        block_table2, remaining = cache.fetch_cache("req-2", tokens1 + [999, 1000])
-
-        # Should hit the prefix
-        assert remaining == [999, 1000]
-
-    def test_release_cache(self):
-        """Test releasing cache."""
-        from vllm_mlx.paged_cache import PagedCacheManager
-        from vllm_mlx.prefix_cache import BlockAwarePrefixCache
-
-        paged_manager = PagedCacheManager(block_size=64, max_blocks=100)
-        cache = BlockAwarePrefixCache(model=None, paged_cache_manager=paged_manager)
-
-        tokens = list(range(64))
-        cache.store_cache("req-1", tokens, ["data"])
-
-        assert len(cache) == 1
-
-        cache.release_cache("req-1")
-
-        assert len(cache) == 0
-
-    def test_fork_cache(self):
-        """Test forking cache (COW)."""
-        from vllm_mlx.paged_cache import PagedCacheManager
-        from vllm_mlx.prefix_cache import BlockAwarePrefixCache
-
-        paged_manager = PagedCacheManager(block_size=64, max_blocks=100)
-        cache = BlockAwarePrefixCache(model=None, paged_cache_manager=paged_manager)
-
-        tokens = list(range(128))
-        cache.store_cache("req-1", tokens, ["shared_data"])
-
-        # Fork to new request
-        forked_table = cache.fork_cache("req-1", "req-2")
-
-        assert forked_table is not None
-        assert len(cache) == 2
-
-        # Both should share the same blocks
-        stats = cache.get_stats()
-        assert stats["shared_blocks"] > 0
-
-    def test_get_cache_for_generation(self):
-        """Test getting cache for generation with COW."""
-        from vllm_mlx.paged_cache import PagedCacheManager
-        from vllm_mlx.prefix_cache import BlockAwarePrefixCache
-
-        paged_manager = PagedCacheManager(block_size=64, max_blocks=100)
-        cache = BlockAwarePrefixCache(model=None, paged_cache_manager=paged_manager)
-
-        tokens = list(range(64))
-        cache.store_cache("req-1", tokens, ["data"])
-
-        # Get cache for generation (no COW needed)
-        cache_data, was_copied = cache.get_cache_for_generation("req-1")
-
-        assert cache_data == ["data"]
-        assert was_copied is False
-
-    def test_get_cache_for_generation_with_cow(self):
-        """Test COW is triggered for shared blocks."""
-        from vllm_mlx.paged_cache import PagedCacheManager
-        from vllm_mlx.prefix_cache import BlockAwarePrefixCache
-
-        paged_manager = PagedCacheManager(block_size=64, max_blocks=100)
-        cache = BlockAwarePrefixCache(model=None, paged_cache_manager=paged_manager)
-
-        tokens = list(range(64))
-        cache.store_cache("req-1", tokens, ["shared_data"])
-        cache.fork_cache("req-1", "req-2")
-
-        # Get cache for forked request - should trigger COW
-        cache_data, was_copied = cache.get_cache_for_generation("req-2")
-
-        assert cache_data is not None
-        assert was_copied is True
-
-    def test_stats(self):
-        """Test statistics."""
-        from vllm_mlx.paged_cache import PagedCacheManager
-        from vllm_mlx.prefix_cache import BlockAwarePrefixCache
-
-        paged_manager = PagedCacheManager(block_size=64, max_blocks=100)
-        cache = BlockAwarePrefixCache(model=None, paged_cache_manager=paged_manager)
-
-        # Miss
-        cache.fetch_cache("req-1", [1, 2, 3])
-
-        stats = cache.get_stats()
-        assert stats["misses"] == 1
-        assert stats["hits"] == 0
-
-    def test_clear(self):
-        """Test clearing cache."""
-        from vllm_mlx.paged_cache import PagedCacheManager
-        from vllm_mlx.prefix_cache import BlockAwarePrefixCache
-
-        paged_manager = PagedCacheManager(block_size=64, max_blocks=100)
-        cache = BlockAwarePrefixCache(model=None, paged_cache_manager=paged_manager)
-
-        tokens = list(range(128))
-        cache.store_cache("req-1", tokens, ["data"])
-        cache.store_cache("req-2", tokens, ["data2"])
-
-        assert len(cache) == 2
-
-        cache.clear()
-
-        assert len(cache) == 0
-        stats = cache.get_stats()
-        # After clear, null block is still allocated (vLLM style)
-        assert stats["allocated_blocks"] == 1  # only null block

@@ -476,11 +476,13 @@ class BatchedEngine(BaseEngine):
         # Use LLM engine for text-only (non-MLLM models)
         from ..request import SamplingParams
 
+        guided_decoding = kwargs.pop("guided_decoding", None)
         sampling_params = SamplingParams(
             max_tokens=max_tokens,
             temperature=temperature,
             top_p=top_p,
             stop=stop or [],
+            guided_decoding=guided_decoding,
         )
 
         output = await self._engine.generate(
@@ -552,11 +554,13 @@ class BatchedEngine(BaseEngine):
         # Use LLM engine for text-only
         from ..request import SamplingParams
 
+        guided_decoding = kwargs.pop("guided_decoding", None)
         sampling_params = SamplingParams(
             max_tokens=max_tokens,
             temperature=temperature,
             top_p=top_p,
             stop=stop or [],
+            guided_decoding=guided_decoding,
         )
 
         prefix_boundary = kwargs.pop("prefix_boundary", 0)

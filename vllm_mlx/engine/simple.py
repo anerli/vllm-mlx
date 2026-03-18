@@ -26,6 +26,16 @@ class SimpleEngine(BaseEngine):
     by calling mlx-lm/mlx-vlm directly without batching overhead.
     """
 
+    def _build_guided_logits_processors(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Build per-request logits processors from guided decoding params."""
+        guided_decoding = kwargs.pop("guided_decoding", None)
+        if guided_decoding is not None:
+            from ..guided_decoding import build_logits_processor
+
+            processor = build_logits_processor(self.tokenizer, guided_decoding)
+            kwargs["logits_processors"] = [processor]
+        return kwargs
+
     def __init__(
         self,
         model_name: str,
@@ -129,6 +139,8 @@ class SimpleEngine(BaseEngine):
         if not self._loaded:
             await self.start()
 
+        kwargs = self._build_guided_logits_processors(kwargs)
+
         async with self._generation_lock:
             # Run in thread pool to allow asyncio timeout to work
             output = await asyncio.to_thread(
@@ -179,6 +191,8 @@ class SimpleEngine(BaseEngine):
         """
         if not self._loaded:
             await self.start()
+
+        kwargs = self._build_guided_logits_processors(kwargs)
 
         async with self._generation_lock:
             accumulated_text = ""
@@ -266,6 +280,7 @@ class SimpleEngine(BaseEngine):
 
         # Convert tools for template if provided
         template_tools = convert_tools_for_template(tools) if tools else None
+        kwargs = self._build_guided_logits_processors(kwargs)
 
         async with self._generation_lock:
             if self._is_mllm:
@@ -338,6 +353,7 @@ class SimpleEngine(BaseEngine):
 
         # Convert tools for template
         template_tools = convert_tools_for_template(tools) if tools else None
+        kwargs = self._build_guided_logits_processors(kwargs)
 
         # Build prompt using tokenizer
         if self._is_mllm:

@@ -112,8 +112,8 @@ class CacheBlock:
     is_null: bool = False
 
     # Actual tensor data for this block
-    # List of (keys, values) per layer, shape: (1, n_kv_heads, block_tokens, head_dim)
-    cache_data: Optional[List[Tuple[Any, Any]]] = None
+    # Per-layer cache data (KV tuples or None for non-KV layers)
+    cache_data: Optional[List[Any]] = None
 
     # Metadata
     token_count: int = 0

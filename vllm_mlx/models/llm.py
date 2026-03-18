@@ -124,6 +124,8 @@ class MLXLanguageModel:
         top_p: float = 0.9,
         repetition_penalty: float = 1.0,
         stop: list[str] | None = None,
+        logits_processors: list | None = None,
+        **kwargs,
     ) -> GenerationOutput:
         """
         Generate text from a prompt.
@@ -148,13 +150,19 @@ class MLXLanguageModel:
         sampler = self._create_sampler(temperature, top_p)
 
         # Generate text
-        output_text = generate(
-            self.model,
-            self.tokenizer,
+        gen_kwargs = dict(
             prompt=prompt,
             max_tokens=max_tokens,
             sampler=sampler,
             verbose=False,
+        )
+        if logits_processors:
+            gen_kwargs["logits_processors"] = logits_processors
+
+        output_text = generate(
+            self.model,
+            self.tokenizer,
+            **gen_kwargs,
         )
 
         # Tokenize output to get token IDs
@@ -177,6 +185,8 @@ class MLXLanguageModel:
         top_p: float = 0.9,
         repetition_penalty: float = 1.0,
         stop: list[str] | None = None,
+        logits_processors: list | None = None,
+        **kwargs,
     ) -> Iterator[StreamingOutput]:
         """
         Stream text generation token by token.
@@ -203,12 +213,18 @@ class MLXLanguageModel:
         token_count = 0
         accumulated_text = ""
 
-        for response in stream_generate(
-            self.model,
-            self.tokenizer,
+        stream_kwargs = dict(
             prompt=prompt,
             max_tokens=max_tokens,
             sampler=sampler,
+        )
+        if logits_processors:
+            stream_kwargs["logits_processors"] = logits_processors
+
+        for response in stream_generate(
+            self.model,
+            self.tokenizer,
+            **stream_kwargs,
         ):
             token_count += 1
             # response.text is the new token text (not accumulated)

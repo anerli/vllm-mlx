@@ -39,7 +39,7 @@ def load_model_with_fallback(model_name: str, tokenizer_config: dict = None):
     Returns:
         Tuple of (model, tokenizer)
     """
-    from mlx_lm import load
+    from mlx_lm.utils import _download, load_model, load_tokenizer
 
     tokenizer_config = tokenizer_config or {}
 
@@ -51,7 +51,14 @@ def load_model_with_fallback(model_name: str, tokenizer_config: dict = None):
         return _load_with_tokenizer_fallback(model_name)
 
     try:
-        return load(model_name, tokenizer_config=tokenizer_config)
+        model_path = _download(model_name)
+        model, config = load_model(model_path, strict=False)
+        tokenizer = load_tokenizer(
+            model_path,
+            tokenizer_config,
+            eos_token_ids=config.get("eos_token_id", None),
+        )
+        return model, tokenizer
     except ValueError as e:
         # Fallback for models with non-standard tokenizers
         if "TokenizersBackend" in str(e) or "Tokenizer class" in str(e):
@@ -77,7 +84,7 @@ def _load_with_tokenizer_fallback(model_name: str):
         model_path = Path(snapshot_download(model_name))
 
     # Load model
-    model, _ = load_model(model_path)
+    model, _ = load_model(model_path, strict=False)
 
     # Try to load tokenizer from tokenizer.json directly
     tokenizer_json = model_path / "tokenizer.json"

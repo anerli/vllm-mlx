@@ -1343,12 +1343,86 @@ async def create_chat_completion(request: ChatCompletionRequest, raw_request: Re
             # Inject JSON instruction into messages
             messages = _inject_json_instruction(messages, json_instruction)
 
+    # Build guided decoding params from response_format for token-level enforcement
+    guided_decoding = None
+    if response_format:
+        rf = (
+            response_format
+            if isinstance(response_format, dict)
+            else (
+                response_format.model_dump(exclude_none=True)
+                if hasattr(response_format, "model_dump")
+                else response_format
+            )
+        )
+        rf_type = (
+            rf.get("type", "text")
+            if isinstance(rf, dict)
+            else getattr(rf, "type", "text")
+        )
+        if rf_type == "json_schema":
+            json_schema_obj = (
+                rf.get("json_schema", {})
+                if isinstance(rf, dict)
+                else getattr(rf, "json_schema", None)
+            )
+            if json_schema_obj:
+                if isinstance(json_schema_obj, dict):
+                    schema = json_schema_obj.get(
+                        "schema", json_schema_obj.get("schema_", json_schema_obj)
+                    )
+                else:
+                    schema = (
+                        getattr(json_schema_obj, "schema_", None)
+                        or getattr(json_schema_obj, "schema", None)
+                        or json_schema_obj
+                    )
+                if schema:
+                    from .guided_decoding import GuidedDecodingParams
+
+                    guided_decoding = GuidedDecodingParams(
+                        kind="json_schema",
+                        json_schema=schema,
+                    )
+
+    # Check vLLM-style guided_* fields if response_format didn't produce a constraint
+    if not guided_decoding:
+        from .guided_decoding import GuidedDecodingParams as _GDP
+
+        guided_fields = {
+            "guided_json": getattr(request, "guided_json", None),
+            "guided_regex": getattr(request, "guided_regex", None),
+            "guided_grammar": getattr(request, "guided_grammar", None),
+            "guided_choice": getattr(request, "guided_choice", None),
+        }
+        active = {k: v for k, v in guided_fields.items() if v is not None}
+
+        if len(active) > 1:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Only one guided decoding field may be set. Got: {list(active.keys())}",
+            )
+
+        if "guided_json" in active:
+            guided_decoding = _GDP(
+                kind="json_schema", json_schema=active["guided_json"]
+            )
+        elif "guided_regex" in active:
+            guided_decoding = _GDP(kind="regex", regex=active["guided_regex"])
+        elif "guided_grammar" in active:
+            guided_decoding = _GDP(kind="cfg", grammar=active["guided_grammar"])
+        elif "guided_choice" in active:
+            guided_decoding = _GDP(kind="choice", choice=active["guided_choice"])
+
     # Prepare kwargs
     chat_kwargs = {
         "max_tokens": request.max_tokens or _default_max_tokens,
         "temperature": _resolve_temperature(request.temperature),
         "top_p": _resolve_top_p(request.top_p),
     }
+
+    if guided_decoding:
+        chat_kwargs["guided_decoding"] = guided_decoding
 
     # Add multimodal content
     if has_media:
