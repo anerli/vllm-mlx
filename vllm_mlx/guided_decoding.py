@@ -13,37 +13,65 @@ logger = logging.getLogger(__name__)
 
 
 def _patch_cfg_guide() -> None:
-    """Monkey-patch Outlines' CFGGuide to handle terminal parser states.
+    """Monkey-patch to fix two Outlines CFG guide bugs:
 
-    Outlines uses None as a sentinel for terminated parser state in CFGGuide,
-    but _get_parser_state_token_applied() doesn't guard against it — it does
-    copy.copy(None) then tries to access .lexer on the result, crashing with:
-        AttributeError: 'NoneType' object has no attribute 'lexer'
+    1. Terminal state crash: Outlines uses None as a sentinel for terminated
+       parser state, but _get_parser_state_token_applied() doesn't guard
+       against it. Fix: raise EOFError, which iter_valid_token_ids() catches.
 
-    The fix adds a guard that raises EOFError for terminal states, which
-    iter_valid_token_ids() already catches, so terminal states simply yield
-    no valid non-EOS tokens.
+    2. Lark TextSlice incompatibility: Lark >= 1.3 uses TextSlice objects
+       for LexerState.text. TextSlice is a frozen dataclass that doesn't
+       support += with str. Fix: patch LexerState.__copy__ to coerce text
+       to str, so all copies produce plain strings.
 
     See: https://github.com/dottxt-ai/outlines/issues/959
     """
+    # Fix 1: Patch CFGGuide to guard against None parser state
     try:
         from outlines.processors.guide import CFGGuide
     except ImportError:
         return
 
-    original = CFGGuide._get_parser_state_token_applied
+    if not getattr(CFGGuide, "_patched_by_vllm_mlx", False):
+        original = CFGGuide._get_parser_state_token_applied
 
-    if getattr(original, "_patched_by_vllm_mlx", False):
-        return  # already patched
+        def _patched(self, state, token_id):
+            if state.parser_state is None:
+                raise EOFError("Cannot apply token to terminated CFG state")
+            return original(self, state, token_id)
 
-    def _patched_get_parser_state_token_applied(self, state, token_id):
-        if state.parser_state is None:
-            raise EOFError("Cannot apply token to terminated CFG state")
-        return original(self, state, token_id)
+        CFGGuide._get_parser_state_token_applied = _patched
+        CFGGuide._patched_by_vllm_mlx = True
+        logger.debug("Patched CFGGuide for terminal state guard")
 
-    _patched_get_parser_state_token_applied._patched_by_vllm_mlx = True
-    CFGGuide._get_parser_state_token_applied = _patched_get_parser_state_token_applied
-    logger.debug("Patched Outlines CFGGuide._get_parser_state_token_applied")
+    # Fix 2: Patch Lark LexerState.__copy__ to coerce TextSlice to str
+    try:
+        from lark.lexer import LexerState
+        from copy import copy as _copy
+    except ImportError:
+        return
+
+    if not getattr(LexerState, "_patched_by_vllm_mlx", False):
+        original_copy = LexerState.__copy__
+
+        def _textslice_to_str(text):
+            """Convert Lark TextSlice to plain str."""
+            if isinstance(text, str):
+                return text
+            # TextSlice has .text (the full string) and .start/.end
+            if hasattr(text, "text") and hasattr(text, "start"):
+                return text.text[text.start:text.end]
+            return str(text)
+
+        def _patched_copy(self):
+            result = original_copy(self)
+            if not isinstance(result.text, str):
+                object.__setattr__(result, "text", _textslice_to_str(result.text))
+            return result
+
+        LexerState.__copy__ = _patched_copy
+        LexerState._patched_by_vllm_mlx = True
+        logger.debug("Patched LexerState.__copy__ for TextSlice coercion")
 
 
 _patch_cfg_guide()

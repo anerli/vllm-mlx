@@ -1074,7 +1074,7 @@ class Scheduler:
         """
         Decode token IDs to text, handling both tokenizers and processors.
         """
-        return str(self._actual_tokenizer.decode(token_ids))
+        return self._actual_tokenizer.decode(token_ids)
 
     def _get_stop_tokens(self) -> Set[int]:
         """Get stop token IDs from tokenizer or processor."""
