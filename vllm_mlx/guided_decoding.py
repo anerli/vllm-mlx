@@ -11,6 +11,43 @@ from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
 
+
+def _patch_cfg_guide() -> None:
+    """Monkey-patch Outlines' CFGGuide to handle terminal parser states.
+
+    Outlines uses None as a sentinel for terminated parser state in CFGGuide,
+    but _get_parser_state_token_applied() doesn't guard against it — it does
+    copy.copy(None) then tries to access .lexer on the result, crashing with:
+        AttributeError: 'NoneType' object has no attribute 'lexer'
+
+    The fix adds a guard that raises EOFError for terminal states, which
+    iter_valid_token_ids() already catches, so terminal states simply yield
+    no valid non-EOS tokens.
+
+    See: https://github.com/dottxt-ai/outlines/issues/959
+    """
+    try:
+        from outlines.processors.guide import CFGGuide
+    except ImportError:
+        return
+
+    original = CFGGuide._get_parser_state_token_applied
+
+    if getattr(original, "_patched_by_vllm_mlx", False):
+        return  # already patched
+
+    def _patched_get_parser_state_token_applied(self, state, token_id):
+        if state.parser_state is None:
+            raise EOFError("Cannot apply token to terminated CFG state")
+        return original(self, state, token_id)
+
+    _patched_get_parser_state_token_applied._patched_by_vllm_mlx = True
+    CFGGuide._get_parser_state_token_applied = _patched_get_parser_state_token_applied
+    logger.debug("Patched Outlines CFGGuide._get_parser_state_token_applied")
+
+
+_patch_cfg_guide()
+
 # Thinking pattern for reasoning models (e.g., Qwen3.5)
 # Matches optional <think>...</think>\n prefix
 _THINKING_PATTERN = (
